@@ -5,39 +5,64 @@ using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
-    public Move Think(Board board, Timer timer) => GetBestMove(board);
+    public Move Think(Board board, Timer timer) => GetBestMove(board, 2);
     
-    private Move GetBestMove(Board board)
+    static Move GetBestMove(Board board, int depth)
     {
-        return board.GetLegalMoves()
-            .OrderByDescending(move => GetRatingOfMove(board, move) * (board.IsWhiteToMove ? 1 : -1))
-            .FirstOrDefault();
-    }
+        Move bestMove = board.GetLegalMoves()
+                .OrderByDescending(move => GetMoveRating(board, move, depth) * (board.IsWhiteToMove ? 1 : -1))
+                .FirstOrDefault();
 
-    private int GetBoardRating(Board board)
+        return bestMove;
+    }
+    
+
+    static int GetBoardRating(Board board, int depth)
     {
+        Move[] legalMoves = board.GetLegalMoves();
+    
+        if (legalMoves.Length == 0)
+        {
+            if (board.IsInCheckmate()) return -10000;
+            if (board.IsDraw()) return 0;
+        }
+
         int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
+        if (depth == 0)
+            return board.GetAllPieceLists().Sum(
+                pieceList => pieceList.Sum(
+                    piece => pieceValues[(int)piece.PieceType] * (piece.IsWhite ? 1 : -1)
+                )
+            ) * (board.IsWhiteToMove ? 1 : -1);     // Rating is always from perspective of player making the next move
 
-        return board.GetAllPieceLists().Sum(
-            pieceList => pieceList.Sum(
-                piece => pieceValues[(int)piece.PieceType] * (piece.IsWhite ? 1 : -1)
-            )
-        );
+        return legalMoves
+            .Select(move => { 
+                board.MakeMove(move); 
+                int rating = -GetBoardRating(board, depth - 1); 
+                board.UndoMove(move); 
+                return rating;
+            })
+            .Max();
     }
 
-    private int GetRatingOfMove(Board board, Move move)
+    static int GetMoveRating(Board board, Move move, int depth)
     {
         board.MakeMove(move);
-        int rating = GetBoardRating(board);
+        int rating = GetBoardRating(board, depth);
         board.UndoMove(move);
 
         return rating;
     }
-
-    // private struct Path
+    // static int GetMoveRating(Board board, Move[] moves)
     // {
-    //     public List<Move> moves;
+    //     foreach (Move move in moves)
+    //         board.MakeMove(move);
 
-    //     public Path(Move[] moves) => this.moves = new(moves);
+    //     int rating = GetBoardRating(board);
+
+    //     foreach (Move move in moves.Reverse())
+    //         board.UndoMove(move);
+
+    //     return rating;
     // }
 }
