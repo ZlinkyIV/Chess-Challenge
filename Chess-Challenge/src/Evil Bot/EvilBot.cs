@@ -1,54 +1,101 @@
-﻿using ChessChallenge.API;
-using System;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using ChessChallenge.API;
 
 namespace ChessChallenge.Example
 {
-    // A simple bot that can spot mate in one, and always captures the most valuable piece it can.
-    // Plays randomly otherwise.
     public class EvilBot : IChessBot
     {
-        // Piece values: null, pawn, knight, bishop, rook, queen, king
-        int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
+        int movesSearched = 0;
 
-        public Move Think(Board board, Timer timer)
+        public Move Think(Board board, Timer timer) => GetBestMove(board, 3);
+        
+        Move GetBestMove(Board board, int depth)
         {
-            Move[] allMoves = board.GetLegalMoves();
+            MoveRating evaluation = Evaluate(board, depth);
+            
+            movesSearched = 0;
 
-            // Pick a random move to play if nothing better is found
-            Random rng = new();
-            Move moveToPlay = allMoves[rng.Next(allMoves.Length)];
-            int highestValueCapture = 0;
-
-            foreach (Move move in allMoves)
-            {
-                // Always play checkmate in one
-                if (MoveIsCheckmate(board, move))
-                {
-                    moveToPlay = move;
-                    break;
-                }
-
-                // Find highest value capture
-                Piece capturedPiece = board.GetPiece(move.TargetSquare);
-                int capturedPieceValue = pieceValues[(int)capturedPiece.PieceType];
-
-                if (capturedPieceValue > highestValueCapture)
-                {
-                    moveToPlay = move;
-                    highestValueCapture = capturedPieceValue;
-                }
-            }
-
-            return moveToPlay;
+            return evaluation.moves[0];
         }
 
-        // Test if this move gives checkmate
-        bool MoveIsCheckmate(Board board, Move move)
+        MoveRating Evaluate(Board board, int depth, int myBestMove = int.MinValue, int opponentBestMove = int.MaxValue)
         {
-            board.MakeMove(move);
-            bool isMate = board.IsInCheckmate();
+            Span<Move> legalMoves = stackalloc Move[256];
+            board.GetLegalMovesNonAlloc(ref legalMoves);
+        
+            if (legalMoves.Length == 0)
+            {
+                if (board.IsInCheckmate()) return new(int.MinValue);
+                if (board.IsDraw()) return new(0);
+            }
+
+            if (depth == 1)
+            {
+                return legalMoves.ToArray()
+                    .Select(move => RateMove(board, move))
+                    .OrderByDescending(moveRating => moveRating.rating)
+                    .First();
+            }
+
+            MoveRating best = new(int.MinValue + 1);
+            Move moveForBestRating = Move.NullMove;
+
+            foreach (var move in legalMoves)
+            {
+                board.MakeMove(move); 
+                MoveRating moveRating = Evaluate(board, depth - 1, -opponentBestMove, -myBestMove);
+                board.UndoMove(move);
+
+                moveRating = new MoveRating{rating = moveRating.rating * -1, moves = moveRating.moves};
+
+                if (moveRating.rating > best.rating)
+                {
+                    best = moveRating;
+                    moveForBestRating = move;
+                }
+                
+                // if (moveRating.rating >= opponentBestMove) // return bestOpponentMove;   // Opponent will avoid this branch so there's no use looking down it.
+                // if (moveRating.rating > myBestMove) myBestMove = moveRating.rating;
+            }
+            return best.AddMove(moveForBestRating);
+        }
+
+        MoveRating RateMove(Board board, Move move)
+        {
+            movesSearched += 1;
+
+            board.MakeMove(move); 
+
+            int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
+            int rating = board.GetAllPieceLists().Sum(
+                    pieceList => pieceList.Sum(
+                        piece => pieceValues[(int)piece.PieceType] * (piece.IsWhite ? 1 : -1)
+                    )
+                ) * (board.IsWhiteToMove ? -1 : 1);     // Rating is always from perspective of player making the next move
+
             board.UndoMove(move);
-            return isMate;
+
+            return new MoveRating(rating).AddMove(move);
+        }
+
+        struct MoveRating
+        {
+            public List<Move> moves;
+            public int rating;
+
+            public MoveRating(int rating)
+            {
+                this.moves = new();
+                this.rating = rating;
+            }
+
+            public MoveRating AddMove(Move move) 
+            {
+                moves.Insert(0, move);
+                return this;
+            }
         }
     }
 }
