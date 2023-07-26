@@ -1,68 +1,109 @@
 ﻿using System;
-using System.Linq;
 using System.Collections.Generic;
+using System.Linq;
 using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
-    public Move Think(Board board, Timer timer) => GetBestMove(board, 2);
-    
-    static Move GetBestMove(Board board, int depth)
-    {
-        Move bestMove = board.GetLegalMoves()
-                .OrderByDescending(move => GetMoveRating(board, move, depth) * (board.IsWhiteToMove ? 1 : -1))
-                .FirstOrDefault();
+    int movesSearched = 0;
 
-        return bestMove;
+    public Move Think(Board board, Timer timer) => GetBestMove(board, 4);
+    
+    Move GetBestMove(Board board, int depth)
+    {
+        MoveRating evaluation = Evaluate(board, depth);
+
+        Console.WriteLine($"Searched {movesSearched} moves");
+        Console.WriteLine($"Rating: {evaluation.rating}");
+        Console.WriteLine($"Best path: {string.Concat(evaluation.moves.Select(m => $"{m.ToString()[6..]} "))}");
+        Console.WriteLine("");
+        
+        movesSearched = 0;
+
+        return evaluation.moves[0];
     }
-    
 
-    static int GetBoardRating(Board board, int depth)
+    MoveRating Evaluate(Board board, int depth, int myBestMove = int.MinValue, int opponentBestMove = int.MaxValue)
     {
-        Move[] legalMoves = board.GetLegalMoves();
+        Span<Move> legalMoves = stackalloc Move[256];
+        board.GetLegalMovesNonAlloc(ref legalMoves);
+
+        if (depth == 4) Console.WriteLine("Possible moves: " + string.Concat(legalMoves.ToArray().Select(m => $"{m.ToString()[6..]}  ")));
     
         if (legalMoves.Length == 0)
         {
-            if (board.IsInCheckmate()) return -10000;
-            if (board.IsDraw()) return 0;
+            if (board.IsInCheckmate()) return new(int.MinValue);
+            if (board.IsDraw()) return new(0);
+
+            Console.WriteLine($"There are no possible moves on this board and no reason why: {board.GetFenString()}");
         }
 
+        if (depth == 1)
+        {
+            return legalMoves.ToArray()
+                .Select(move => RateMove(board, move))
+                .OrderByDescending(moveRating => moveRating.rating)
+                .First();
+        }
+
+        MoveRating best = new(int.MinValue);
+        Move moveForBestRating = Move.NullMove;
+
+        foreach (var move in legalMoves)
+        {
+            board.MakeMove(move); 
+            MoveRating moveRating = Evaluate(board, depth - 1, -opponentBestMove, -myBestMove);
+            board.UndoMove(move);
+
+            moveRating = new MoveRating{rating = moveRating.rating * -1, moves = moveRating.moves};
+
+            if (depth == 4) Console.WriteLine($"{move.ToString()[6..]}  {moveRating.rating}  {string.Concat(moveRating.moves.ToArray().Select(m => $"{m.ToString()[6..]}  "))}");
+
+            if (moveRating.rating > best.rating)
+            {
+                best = moveRating;
+                moveForBestRating = move;
+            }
+            
+            // if (moveRating.rating >= opponentBestMove) // return bestOpponentMove;   // Opponent will avoid this branch so there's no use looking down it.
+            // if (moveRating.rating > myBestMove) myBestMove = moveRating.rating;
+        }
+        return best.AddMove(moveForBestRating);
+    }
+
+    MoveRating RateMove(Board board, Move move)
+    {
+        movesSearched += 1;
+
+        board.MakeMove(move); 
+
         int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
-        if (depth == 0)
-            return board.GetAllPieceLists().Sum(
+        int rating = board.GetAllPieceLists().Sum(
                 pieceList => pieceList.Sum(
                     piece => pieceValues[(int)piece.PieceType] * (piece.IsWhite ? 1 : -1)
                 )
-            ) * (board.IsWhiteToMove ? 1 : -1);     // Rating is always from perspective of player making the next move
+            ) * (board.IsWhiteToMove ? -1 : 1);     // Rating is always from perspective of player making the next move
 
-        return legalMoves
-            .Select(move => { 
-                board.MakeMove(move); 
-                int rating = -GetBoardRating(board, depth - 1); 
-                board.UndoMove(move); 
-                return rating;
-            })
-            .Max();
-    }
-
-    static int GetMoveRating(Board board, Move move, int depth)
-    {
-        board.MakeMove(move);
-        int rating = GetBoardRating(board, depth);
         board.UndoMove(move);
 
-        return rating;
+        return new MoveRating(rating).AddMove(move);
     }
-    // static int GetMoveRating(Board board, Move[] moves)
-    // {
-    //     foreach (Move move in moves)
-    //         board.MakeMove(move);
 
-    //     int rating = GetBoardRating(board);
+    struct MoveRating
+    {
+        public List<Move> moves;
+        public int rating;
 
-    //     foreach (Move move in moves.Reverse())
-    //         board.UndoMove(move);
+        public MoveRating(int rating)
+        {
+            this.moves = new();
+            this.rating = rating;
+        }
 
-    //     return rating;
-    // }
+        public MoveRating AddMove(Move move) 
+        {
+            moves.Insert(0, move);
+            return this;
+        }
+    }
 }
