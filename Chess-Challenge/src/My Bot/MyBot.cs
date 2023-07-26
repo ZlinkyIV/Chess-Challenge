@@ -46,29 +46,32 @@ public class MyBot : IChessBot
                 .First();
         }
 
-        MoveRating best = new(int.MinValue);    // "MinValue + 1" == NO TOUCHY! -- https://stackoverflow.com/questions/3622347/1-int-minvalue-int-minvalue-is-this-a-bug
         Move moveForBestRating = Move.NullMove;
 
         foreach (var move in legalMoves)
         {
             board.MakeMove(move); 
-            MoveRating moveRating = -Evaluate(board, depth - 1, -opponentBestMove, -myBestMove);
+            MoveRating moveEvaluation = -Evaluate(board, depth - 1, -opponentBestMove, -myBestMove);
             board.UndoMove(move);
 
             // if (depth == 4) Console.WriteLine($"{move.ToString()[6..]}  {moveRating.rating}  {string.Concat(moveRating.moves.ToArray().Select(m => $"{m.ToString()[6..]}  "))}");
 
-            if (moveRating.rating > best.rating)
+            if (moveEvaluation.rating >= opponentBestMove.rating) 
             {
-                best = moveRating;
+                return opponentBestMove;    // Opponent will avoid this branch, so there's no use looking down it.
+            }
+
+            if (moveEvaluation.rating > myBestMove.rating)
+            {
+                myBestMove = moveEvaluation;
                 moveForBestRating = move;
             }
-            
-            if (moveRating.rating >= opponentBestMove.rating) return opponentBestMove;      // Opponent will avoid this branch, so there's no use looking down it.
-            if (moveRating.rating > myBestMove.rating) myBestMove = moveRating;
         }
 
-        best.AddMove(moveForBestRating);
-        return best;
+        if (moveForBestRating != Move.NullMove)
+            myBestMove.AddMove(moveForBestRating);
+
+        return myBestMove;
     }
 
     MoveRating RateMove(Board board, Move move)
