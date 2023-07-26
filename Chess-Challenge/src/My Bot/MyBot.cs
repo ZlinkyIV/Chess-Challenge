@@ -11,7 +11,7 @@ public class MyBot : IChessBot
     
     Move GetBestMove(Board board, int depth)
     {
-        MoveRating evaluation = Evaluate(board, depth);
+        MoveRating evaluation = Evaluate(board, depth, new(int.MinValue + 1), new(int.MaxValue));   // "MinValue + 1" == NO TOUCHY! -- https://stackoverflow.com/questions/3622347/1-int-minvalue-int-minvalue-is-this-a-bug
 
         Console.WriteLine($"Searched {movesSearched} moves");
         Console.WriteLine($"Rating: {evaluation.rating}");
@@ -23,12 +23,12 @@ public class MyBot : IChessBot
         return evaluation.moves[0];
     }
 
-    MoveRating Evaluate(Board board, int depth, int myBestMove = int.MinValue, int opponentBestMove = int.MaxValue)
+    MoveRating Evaluate(Board board, int depth, MoveRating myBestMove, MoveRating opponentBestMove)
     {
         Span<Move> legalMoves = stackalloc Move[256];
         board.GetLegalMovesNonAlloc(ref legalMoves);
 
-        if (depth == 4) Console.WriteLine("Possible moves: " + string.Concat(legalMoves.ToArray().Select(m => $"{m.ToString()[6..]}  ")));
+        // if (depth == 4) Console.WriteLine("Possible moves: " + string.Concat(legalMoves.ToArray().Select(m => $"{m.ToString()[6..]}  ")));
     
         if (legalMoves.Length == 0)
         {
@@ -46,18 +46,16 @@ public class MyBot : IChessBot
                 .First();
         }
 
-        MoveRating best = new(int.MinValue);
+        MoveRating best = new(int.MinValue);    // "MinValue + 1" == NO TOUCHY! -- https://stackoverflow.com/questions/3622347/1-int-minvalue-int-minvalue-is-this-a-bug
         Move moveForBestRating = Move.NullMove;
 
         foreach (var move in legalMoves)
         {
             board.MakeMove(move); 
-            MoveRating moveRating = Evaluate(board, depth - 1, -opponentBestMove, -myBestMove);
+            MoveRating moveRating = -Evaluate(board, depth - 1, -opponentBestMove, -myBestMove);
             board.UndoMove(move);
 
-            moveRating = new MoveRating{rating = moveRating.rating * -1, moves = moveRating.moves};
-
-            if (depth == 4) Console.WriteLine($"{move.ToString()[6..]}  {moveRating.rating}  {string.Concat(moveRating.moves.ToArray().Select(m => $"{m.ToString()[6..]}  "))}");
+            // if (depth == 4) Console.WriteLine($"{move.ToString()[6..]}  {moveRating.rating}  {string.Concat(moveRating.moves.ToArray().Select(m => $"{m.ToString()[6..]}  "))}");
 
             if (moveRating.rating > best.rating)
             {
@@ -65,10 +63,12 @@ public class MyBot : IChessBot
                 moveForBestRating = move;
             }
             
-            // if (moveRating.rating >= opponentBestMove) // return bestOpponentMove;   // Opponent will avoid this branch so there's no use looking down it.
-            // if (moveRating.rating > myBestMove) myBestMove = moveRating.rating;
+            if (moveRating.rating >= opponentBestMove.rating) return opponentBestMove;      // Opponent will avoid this branch, so there's no use looking down it.
+            if (moveRating.rating > myBestMove.rating) myBestMove = moveRating;
         }
-        return best.AddMove(moveForBestRating);
+
+        best.AddMove(moveForBestRating);
+        return best;
     }
 
     MoveRating RateMove(Board board, Move move)
@@ -86,7 +86,9 @@ public class MyBot : IChessBot
 
         board.UndoMove(move);
 
-        return new MoveRating(rating).AddMove(move);
+        MoveRating moveRating = new(rating);
+        moveRating.AddMove(move);
+        return moveRating;
     }
 
     struct MoveRating
@@ -100,10 +102,11 @@ public class MyBot : IChessBot
             this.rating = rating;
         }
 
-        public MoveRating AddMove(Move move) 
+        public void AddMove(Move move) 
         {
             moves.Insert(0, move);
-            return this;
         }
+
+        public static MoveRating operator -(MoveRating moveRating) => new() { rating = -moveRating.rating, moves = moveRating.moves };
     }
 }
