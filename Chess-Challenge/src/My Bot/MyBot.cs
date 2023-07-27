@@ -25,10 +25,11 @@ public class MyBot : IChessBot
 
     MoveRating Evaluate(Board board, int depth, MoveRating myBestMove, MoveRating opponentBestMove)
     {
-        Span<Move> legalMoves = stackalloc Move[256];
-        board.GetLegalMovesNonAlloc(ref legalMoves);
+        Span<Move> legalMovesSpan = stackalloc Move[256];
+        board.GetLegalMovesNonAlloc(ref legalMovesSpan);
+        Move[] legalMoves = OrderMoves(board, legalMovesSpan.ToArray());
 
-        // if (depth == 4) Console.WriteLine("Possible moves: " + string.Concat(legalMoves.ToArray().Select(m => $"{m.ToString()[6..]}  ")));
+        // if (depth == 4) Console.WriteLine("Possible moves: " + string.Concat(legalMoves.Select(m => $"{m.ToString()[6..]}  ")));
     
         if (legalMoves.Length == 0)
         {
@@ -40,7 +41,7 @@ public class MyBot : IChessBot
 
         if (depth == 1)
         {
-            return legalMoves.ToArray()
+            return legalMoves
                 .Select(move => RateMove(board, move))
                 .OrderByDescending(moveRating => moveRating.rating)
                 .First();
@@ -56,10 +57,7 @@ public class MyBot : IChessBot
 
             // if (depth == 4) Console.WriteLine($"{move.ToString()[6..]}  {moveRating.rating}  {string.Concat(moveRating.moves.ToArray().Select(m => $"{m.ToString()[6..]}  "))}");
 
-            if (moveEvaluation.rating >= opponentBestMove.rating) 
-            {
-                return opponentBestMove;    // Opponent will avoid this branch, so there's no use looking down it.
-            }
+            if (moveEvaluation.rating >= opponentBestMove.rating) return opponentBestMove;    // Opponent will avoid this branch, so there's no use looking down it.
 
             if (moveEvaluation.rating > myBestMove.rating)
             {
@@ -72,6 +70,28 @@ public class MyBot : IChessBot
             myBestMove.AddMove(moveForBestRating);
 
         return myBestMove;
+    }
+
+    Move[] OrderMoves(Board board, Move[] moves)
+    {
+        int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
+
+        return 
+            moves
+            .Select(move => Tuple.Create(move, (
+                  (move.IsCapture 
+                   ? pieceValues[(int)move.CapturePieceType] - pieceValues[(int)move.MovePieceType] 
+                   : 0)
+                + (move.IsPromotion 
+                   ? pieceValues[(int)move.PromotionPieceType]
+                   : 0)
+                - (board.SquareIsAttackedByOpponent(move.TargetSquare) 
+                   ? pieceValues[(int)move.MovePieceType] 
+                   : 0)
+            )))
+            .OrderByDescending(moveScore => moveScore.Item2)
+            .Select(moveScore => moveScore.Item1)
+            .ToArray();
     }
 
     MoveRating RateMove(Board board, Move move)
@@ -96,13 +116,15 @@ public class MyBot : IChessBot
 
     struct MoveRating
     {
-        public List<Move> moves;
+        public List<Move> moves = new();
         public int rating;
 
-        public MoveRating(int rating)
+        public MoveRating(int rating, Move? move = null)
         {
-            this.moves = new();
             this.rating = rating;
+
+            if (move != null)
+                moves.Add((Move)move);
         }
 
         public void AddMove(Move move) 
