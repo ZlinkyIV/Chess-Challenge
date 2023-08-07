@@ -27,7 +27,7 @@ namespace ChessChallenge.Example
         
             if (legalMoves.Length == 0)
             {
-                if (board.IsInCheckmate()) return new(int.MinValue);
+                if (board.IsInCheckmate()) return new(int.MinValue + 1);    // "MinValue + 1" == NO TOUCHY! -- https://stackoverflow.com/questions/3622347/1-int-minvalue-int-minvalue-is-this-a-bug
                 if (board.IsDraw()) return new(0);
             }
 
