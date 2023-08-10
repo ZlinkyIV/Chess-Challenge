@@ -3,79 +3,55 @@ using System.Collections.Generic;
 using System.Linq;
 using ChessChallenge.API;
 
-public class MyBoTwo : IChessBot
+public class MyBot : IChessBot
 {
     int movesSearched = 0;
 
-    public Move Think(Board board, Timer timer) => GetBestMove(board, 1);
-    
-    Move GetBestMove(Board board, int depth)
+    public Move Think(Board board, Timer timer)
     {
-        MoveRating evaluation = Evaluate(board, depth, new(int.MinValue + 1), new(int.MaxValue));   // "MinValue + 1" == NO TOUCHY! -- https://stackoverflow.com/questions/3622347/1-int-minvalue-int-minvalue-is-this-a-bug
-
-        Console.WriteLine($"Searched {movesSearched} moves");
-        Console.WriteLine($"Rating: {evaluation.rating}");
-        Console.WriteLine($"Best path: {string.Concat(evaluation.moves.Select(m => $"{m.ToString()[6..]} "))}");
-        Console.WriteLine($"Last move is capture: {evaluation.moves[^1].IsCapture}");
-        Console.WriteLine("");
-        
-        movesSearched = 0;
-
-        return evaluation.moves[0];
+        Move move = Search(board, 3).move;
+        Console.WriteLine($"Positions searched: {movesSearched}");
+        return move;
     }
 
-    MoveRating Evaluate(Board board, int depth, MoveRating myBestMove, MoveRating opponentBestMove, bool quiescenceSearch = false)
+    MoveScore Search(Board board, int depth) => Search(board, depth, new MoveScore(Move.NullMove, int.MinValue + 1), new MoveScore(Move.NullMove, int.MaxValue)); 
+
+    MoveScore Search(Board board, int depth, MoveScore whiteBest, MoveScore blackBest)
     {
-        if (!quiescenceSearch && depth == 0)
-            return Evaluate(board, depth, myBestMove, opponentBestMove, true);
-
-        Span<Move> legalMovesSpan = stackalloc Move[256];
-        board.GetLegalMovesNonAlloc(ref legalMovesSpan, quiescenceSearch);
-        // Move[] legalMoves = OrderMoves(board, legalMovesSpan.ToArray());
-        Move[] legalMoves = legalMovesSpan.ToArray();
-
-        // if (depth == 4) Console.WriteLine("Possible moves: " + string.Concat(legalMoves.Select(m => $"{m.ToString()[6..]}  ")));
-
-        // if (quiescenceSearch) Console.WriteLine($"Depth: {depth}  Count: {legalMoves.Length}");
-    
-        if (legalMoves.Length == 0)
+        foreach (var move in board.GetLegalMoves())
         {
-            if (board.IsInCheckmate()) return new(int.MinValue + 1);    // "MinValue + 1" == NO TOUCHY! -- https://stackoverflow.com/questions/3622347/1-int-minvalue-int-minvalue-is-this-a-bug
-            if (board.IsDraw()) return new(0);
+            int score = depth == 0 
+                        ? Quiescence(board, whiteBest.score, blackBest.score)
+                        : MakeMove(board, move, (board) => -Search(board, depth - 1, -blackBest, -whiteBest).score);
 
-            if (quiescenceSearch)
-                return new(RateBoard(board));
+            if (score > blackBest.score)
+                return blackBest;
+            if (score > whiteBest.score)
+                whiteBest = new(move, score);
+        }
+        return whiteBest;
+    }
+
+    int Quiescence(Board board, int whiteBest, int blackBest)
+    {
+        int standPat = Evaluate(board);
+
+        if (standPat >= blackBest)
+            return blackBest;
+        if (whiteBest < standPat)
+            whiteBest = standPat;
+
+        foreach (var capture in board.GetLegalMoves(true))
+        {
+            int score = MakeMove(board, capture, (board) => -Quiescence(board, -blackBest, -whiteBest));
+
+            if (score >= blackBest)
+                return blackBest;
+            if ( score > whiteBest)
+            whiteBest = score;
         }
 
-        if (quiescenceSearch)
-        {
-            MoveRating standPat = new(RateBoard(board));
-
-            if (standPat.rating >= opponentBestMove.rating) return opponentBestMove;
-            if (standPat.rating > myBestMove.rating)  myBestMove = standPat;
-        }
-
-        Move moveForBestRating = Move.NullMove;
-        foreach (var move in legalMoves)
-        {
-            board.MakeMove(move); 
-            MoveRating moveEvaluation = -Evaluate(board, depth - 1, -opponentBestMove, -myBestMove, quiescenceSearch);
-            board.UndoMove(move);
-
-            // if (depth == 4) Console.WriteLine($"{move.ToString()[6..]}  {moveRating.rating}  {string.Concat(moveRating.moves.ToArray().Select(m => $"{m.ToString()[6..]}  "))}");
-
-            if (moveEvaluation.rating >= opponentBestMove.rating) return opponentBestMove;    // Opponent will avoid this branch, so there's no use looking down it.
-            if (moveEvaluation.rating > myBestMove.rating)
-            {
-                myBestMove = moveEvaluation;
-                moveForBestRating = move;
-            }
-        }
-
-        if (moveForBestRating != Move.NullMove)
-            myBestMove.AddMove(moveForBestRating);
-
-        return myBestMove;
+        return whiteBest;
     }
 
     Move[] OrderMoves(Board board, Move[] moves)
@@ -100,27 +76,7 @@ public class MyBoTwo : IChessBot
             .ToArray();
     }
 
-    MoveRating RateMove(Board board, Move move)
-    {
-        movesSearched += 1;
-
-        board.MakeMove(move); 
-
-        int[] pieceValues = { 0, 100, 300, 300, 500, 900, 10000 };
-        int rating = board.GetAllPieceLists().Sum(
-                pieceList => pieceList.Sum(
-                    piece => pieceValues[(int)piece.PieceType] * (piece.IsWhite ? 1 : -1)
-                )
-            ) * (board.IsWhiteToMove ? -1 : 1);     // Rating is always from perspective of player making the next move
-
-        board.UndoMove(move);
-
-        MoveRating moveRating = new(rating);
-        moveRating.AddMove(move);
-        return moveRating;
-    }
-
-    int RateBoard(Board board)
+    int Evaluate(Board board)
     {
         movesSearched += 1;
 
@@ -132,24 +88,25 @@ public class MyBoTwo : IChessBot
             ) * (board.IsWhiteToMove ? 1 : -1);     // Rating is always from perspective of player making the next move        
     }
 
-    struct MoveRating
+    TResult MakeMove<TResult>(Board board, Move move, Func<Board, TResult> evaluate)
     {
-        public List<Move> moves = new();
-        public int rating;
+        board.MakeMove(move);
+        TResult evaluation = evaluate(board);
+        board.UndoMove(move);
+        return evaluation;
+    }
 
-        public MoveRating(int rating, Move? move = null)
+    struct MoveScore
+    {
+        public Move move;
+        public int score;
+
+        public MoveScore(Move move, int score)
         {
-            this.rating = rating;
-
-            if (move != null)
-                moves.Add((Move)move);
+            this.move = move;
+            this.score = score;
         }
 
-        public void AddMove(Move move) 
-        {
-            moves.Insert(0, move);
-        }
-
-        public static MoveRating operator -(MoveRating moveRating) => new() { rating = -moveRating.rating, moves = moveRating.moves };
+        public static MoveScore operator -(MoveScore moveScore) => new(moveScore.move, -moveScore.score);
     }
 }

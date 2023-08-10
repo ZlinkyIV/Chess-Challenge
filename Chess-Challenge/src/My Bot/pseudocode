@@ -1,0 +1,68 @@
+using System;
+using ChessChallenge.API;
+
+MoveScore Search(Board board, int depth, MoveScore whiteBest, MoveScore blackBest)
+{
+    foreach (var move in board.GetLegalMoves())
+    {
+        int score = depth == 0 
+                    ? Quiescence(board, whiteBest.score, blackBest.score)
+                    : MakeMove(board, move, (board) => -Search(board, depth - 1, -blackBest, -whiteBest).score);
+
+        if (score > blackBest.score)
+            return blackBest;
+        if (score > whiteBest.score)
+            whiteBest = new(move, score);
+    }
+    return whiteBest;
+}
+
+int Quiescence(Board board, int whiteBest, int blackBest)
+{
+    int standPat = Evaluate(board);
+
+    if (standPat >= blackBest)
+        return blackBest;
+    if (whiteBest < standPat)
+        whiteBest = standPat;
+
+    foreach (var capture in board.GetLegalMoves(true))
+    {
+        int score = MakeMove(board, capture, (board) => -Quiescence(board, -blackBest, -whiteBest));
+
+        if (score >= blackBest)
+            return blackBest;
+        if ( score > whiteBest)
+           whiteBest = score;
+    }
+
+    return whiteBest;
+}
+
+int Evaluate(Board board)
+{
+    return 0;
+}
+
+
+TResult MakeMove<TResult>(Board board, Move move, Func<Board, TResult> evaluate)
+{
+    board.MakeMove(move);
+    TResult evaluation = evaluate(board);
+    board.UndoMove(move);
+    return evaluation;
+}
+
+struct MoveScore
+{
+    public Move move;
+    public int score;
+
+    public MoveScore(Move move, int score)
+    {
+        this.move = move;
+        this.score = score;
+    }
+
+    public static MoveScore operator -(MoveScore moveScore) => new(moveScore.move, -moveScore.score);
+}
