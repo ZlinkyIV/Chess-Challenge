@@ -1,41 +1,45 @@
 using System;
+using System.Linq;
 using ChessChallenge.API;
 
-MoveScore Search(Board board, int depth, MoveScore whiteBest, MoveScore blackBest)
+(Move move, int score) SearchWrapper(Board board, int depth)
+    {
+        return board.GetLegalMoves()
+            .Select(move => (move, score: MakeMove(board, move, board => -Search(board, depth - 1))))
+            .MaxBy(moveScore => moveScore.score);
+    }
+
+int Search(Board board, int depth, int whiteBest = int.MinValue + 1, int blackBest = int.MaxValue, bool quiescence = false)
 {
+    if (depth == 0 && !quiescence)
+        return Search(board, depth, whiteBest, blackBest, true);
+
+    if (quiescence)
+    {
+        int standPat = Evaluate(board);
+
+        if (standPat >= blackBest)
+            return blackBest;
+        if (whiteBest < standPat)
+            whiteBest = standPat;
+    }
+
+    Move[] legalMoves = board.GetLegalMoves();
+    
+    if (legalMoves.Length == 0)
+            return board.IsInCheckmate()
+                ? int.MinValue + 1
+                : 0;
+
     foreach (var move in board.GetLegalMoves())
     {
-        int score = depth == 0 
-                    ? Quiescence(board, whiteBest.score, blackBest.score)
-                    : MakeMove(board, move, (board) => -Search(board, depth - 1, -blackBest, -whiteBest).score);
+        int score = MakeMove(board, move, (board) => -Search(board, depth - 1, -blackBest, -whiteBest, quiescence));
 
-        if (score > blackBest.score)
+        if (score > blackBest)
             return blackBest;
-        if (score > whiteBest.score)
-            whiteBest = new(move, score);
+        if (score > whiteBest)
+            whiteBest = score;
     }
-    return whiteBest;
-}
-
-int Quiescence(Board board, int whiteBest, int blackBest)
-{
-    int standPat = Evaluate(board);
-
-    if (standPat >= blackBest)
-        return blackBest;
-    if (whiteBest < standPat)
-        whiteBest = standPat;
-
-    foreach (var capture in board.GetLegalMoves(true))
-    {
-        int score = MakeMove(board, capture, (board) => -Quiescence(board, -blackBest, -whiteBest));
-
-        if (score >= blackBest)
-            return blackBest;
-        if ( score > whiteBest)
-           whiteBest = score;
-    }
-
     return whiteBest;
 }
 
