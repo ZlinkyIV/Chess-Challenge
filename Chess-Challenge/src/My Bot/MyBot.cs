@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
 using ChessChallenge.API;
 
@@ -9,8 +8,9 @@ public class MyBot : IChessBot
 
     public Move Think(Board board, Timer timer)
     {
-        Move move = Search(board, 2).move;
-        Console.WriteLine($"Positions searched: {movesSearched}");
+        MoveScore moveScore = Search(board, 4);
+        Move move = moveScore.move;
+        Console.WriteLine($"Positions searched: {movesSearched} \t  Score: {moveScore.score}");
         movesSearched = 0;
         return move;
     }
@@ -24,7 +24,15 @@ public class MyBot : IChessBot
 
         Move[] legalMoves = OrderedLegalMoves(board, capturesOnly);
 
-        if (capturesOnly && legalMoves.Length != 0)
+        if (legalMoves.Length == 0)
+        {
+            if (board.IsInCheckmate())
+                return new(Move.NullMove, int.MinValue + 1);
+            else
+                return new(Move.NullMove, 0);
+        }
+
+        if (capturesOnly)
         {
             int standPat = Evaluate(board);
 
@@ -36,20 +44,22 @@ public class MyBot : IChessBot
 
         foreach (var move in legalMoves)
         {
-            int score = MakeMove(board, move, board => -Search(board, depth - 1, -blackBest, -whiteBest, capturesOnly).score);
+            int score = -MakeMove(board, move, board => Search(board, depth - 1, -blackBest, -whiteBest, capturesOnly).score);
 
-            if (score > blackBest.score)
-                return blackBest;
+            if (score >= blackBest.score)
+                return blackBest.move == Move.NullMove
+                       ? new(legalMoves[0], blackBest.score)
+                       : blackBest;
             if (score > whiteBest.score)
                 whiteBest = new(move, score);
         }
 
-        return legalMoves.Length != 0
-               ? whiteBest 
-               : board.IsInCheckmate()
-                 ? new(Move.NullMove, int.MinValue + 1)
-                 : new(Move.NullMove, 0);
+        return whiteBest.move == Move.NullMove
+               ? new(legalMoves[0], whiteBest.score)
+               : whiteBest;
     }
+
+    MoveScore TestMove(MoveScore moveScore, Board board) => new(new("a6h7", board), moveScore.score);
 
     Move[] OrderedLegalMoves(Board board, bool capturesOnly = false)
     {
@@ -79,7 +89,8 @@ public class MyBot : IChessBot
                 pieceList => pieceList.Sum(
                     piece => pieceValues[(int)piece.PieceType] * (piece.IsWhite ? 1 : -1)
                 )
-            ) * (board.IsWhiteToMove ? 1 : -1);     // Rating is always from perspective of player making the next move        
+            ) * (board.IsWhiteToMove ? 1 : -1)     // Rating is always from perspective of player making the next move
+            + board.GetLegalMoves().Count() * 10;
     }
 
     TResult MakeMove<TResult>(Board board, Move move, Func<Board, TResult> evaluate)
